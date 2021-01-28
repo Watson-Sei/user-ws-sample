@@ -57,6 +57,15 @@ $("#frm-post").addEventListener("submit", (e)=> {
     msg.value = "";
 })
 
+socket.onclose = function (event) {
+    const list = $("#msglist");
+    const li = document.createElement("li");
+
+    li.innerHTML = `<span class="msg-master"><span class="name">master</span>> Connection closed.</span>`
+
+    list.insertBefore(li, list.firstChild);
+}
+
 function addMessage(msg, is_me=false) {
     const list = $("#msglist");
     const li = document.createElement("li");
