@@ -38,7 +38,7 @@ func main() {
 		h.register <- c
 
 		for {
-			messageType, message, err := c.ReadMessage()
+			messageType, msg, err := c.ReadMessage()
 			if err != nil {
 				if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
 					log.Println("read error:", err)
@@ -49,7 +49,7 @@ func main() {
 
 			if messageType == websocket.TextMessage {
 				// Broadcast the received message
-				h.broadcast <- string(message)
+				h.broadcast <- message{conn: c, data: msg}
 			} else {
 				log.Println("websocket message received of type", messageType)
 			}

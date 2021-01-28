@@ -10,20 +10,28 @@ import (
 
 type client struct{}
 
+type message struct {
+	data []byte
+	conn *websocket.Conn
+}
+
 type hub struct {
 	clients map[*websocket.Conn]client
 	register chan *websocket.Conn
 	unregister chan *websocket.Conn
-	broadcast chan string
+	broadcast chan message
 }
 
 var h = hub{
 	clients: make(map[*websocket.Conn]client),
 	register: make(chan *websocket.Conn),
 	unregister: make(chan *websocket.Conn),
-	broadcast: make(chan string),
+	broadcast: make(chan message),
 }
 
+// チャット参加者一覧
+var Member = make(map[*websocket.Conn]map[string]interface{})
+// チャット延べ参加者
 var MemberCount int = 1
 
 func (h *hub) run() {
@@ -36,6 +44,13 @@ func (h *hub) run() {
 			// create token and send token
 			SID := strconv.Itoa(MemberCount)
 			token := makeToken(SID)
+
+			// ユーザーリストに追加
+			Member[connection] = make(map[string]interface{})
+			Member[connection]["token"] = token
+			Member[connection]["name"] = nil
+			Member[connection]["count"] = MemberCount
+
 			MemberCount += 1
 
 			bytes, err := json.Marshal(map[string]interface{}{
@@ -58,12 +73,71 @@ func (h *hub) run() {
 			delete(h.clients, connection)
 			log.Println("connection unregistered")
 
-		case message := <- h.broadcast:
-			log.Println("message received:", message)
+		case m := <- h.broadcast:
+			log.Println("message received:", string(m.data))
 
 			var dataMap map[string]interface{}
-			if err := json.Unmarshal([]byte(message), &dataMap); err != nil {
+			if err := json.Unmarshal(m.data, &dataMap); err != nil {
 				log.Println("error unmarshal: ", err)
+			}
+
+			if dataMap["event"] == "join" {
+				if authToken(m.conn, dataMap["token"].(string)) {
+					log.Println("The token is valid.")
+					// 入室OK + 現在の入室者一覧を通知
+					memberlist := getMemberList()
+					bytes, _ := json.Marshal(map[string]interface{}{
+						"event": "join-result",
+						"status": true,
+						"list": memberlist,
+					})
+					if err := m.conn.WriteMessage(websocket.TextMessage, bytes); err != nil {
+						log.Println("write error:", err)
+
+						h.unregister <- m.conn
+						m.conn.WriteMessage(websocket.TextMessage, []byte{})
+						m.conn.Close()
+					}
+
+					// メンバー一覧に追加
+					Member[m.conn]["name"] = dataMap["name"]
+
+					// 入室通知
+					// sender
+					dataMap["event"] = "member-join"
+					bytes, _ = json.Marshal(dataMap)
+					if err := m.conn.WriteMessage(websocket.TextMessage, bytes); err != nil {
+						log.Println("write error:", err)
+
+						m.conn.WriteMessage(websocket.TextMessage, []byte{})
+						m.conn.Close()
+					}
+					// others
+					dataMap["token"] = Member[m.conn]["count"]
+					bytes, _ = json.Marshal(dataMap)
+					for connection:= range h.clients {
+						if connection != m.conn {
+							if err := connection.WriteMessage(websocket.TextMessage, bytes); err != nil {
+								log.Println("write error:", err)
+
+								connection.WriteMessage(websocket.TextMessage, []byte{})
+								connection.Close()
+							}
+						}
+					}
+				} else {  // トークンが誤っていた場合
+					// NG notification to sender
+					bytes, _ := json.Marshal(map[string]interface{}{
+						"event": "join-result",
+						"status": false,
+					})
+					if err := m.conn.WriteMessage(websocket.TextMessage, bytes); err != nil {
+						log.Println("write error:", err)
+
+						m.conn.WriteMessage(websocket.TextMessage, []byte{})
+						m.conn.Close()
+					}
+				}
 			}
 
 			if dataMap["event"] == "post" {
@@ -98,4 +172,28 @@ func makeToken(id string) string {
 		log.Println(err)
 	}
 	return string(hash)
+}
+
+func authToken(conn *websocket.Conn, token string) bool {
+	if _, ok := Member[conn]; ok {
+		if token == Member[conn]["token"] {
+			return true
+		}
+		return false
+	}
+	return false
+}
+
+func getMemberList() []map[string]interface{} {
+	var list []map[string]interface{}
+	for key, _ := range Member {
+		cur := Member[key]
+		if cur["name"] != nil {
+			list = append(list, map[string]interface{}{
+				"token": cur["count"],
+				"name": cur["name"],
+			})
+		}
+	}
+	return list
 }
