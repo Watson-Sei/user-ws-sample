@@ -36,6 +36,7 @@ func (h *hub) run() {
 			// create token and send token
 			SID := strconv.Itoa(MemberCount)
 			token := makeToken(SID)
+			MemberCount += 1
 
 			bytes, err := json.Marshal(map[string]interface{}{
 				"event": "token",
@@ -64,11 +65,13 @@ func (h *hub) run() {
 			if err := json.Unmarshal([]byte(message), &dataMap); err != nil {
 				log.Println("error unmarshal: ", err)
 			}
-			if dataMap["event"] == "post" {
 
+			if dataMap["event"] == "post" {
 				bytes, err := json.Marshal(map[string]interface{}{
 					"event": "member-post",
 					"message": dataMap["message"],
+					"token": dataMap["token"],
+					"name": dataMap["name"],
 				})
 				if err != nil {
 					log.Println(err)
