@@ -161,6 +161,59 @@ func (h *hub) run() {
 					}
 				}
 			}
+
+			if dataMap["event"] == "quit" {
+				// トークンが正しければ
+				if authToken(m.conn, dataMap["token"].(string)) {
+					// 本人に通知
+					bytes, _ := json.Marshal(map[string]interface{}{
+						"event": "quit-result",
+						"status": true,
+					})
+					log.Println(string(bytes))
+					if err := m.conn.WriteMessage(websocket.TextMessage, bytes); err != nil {
+						log.Println("write error:", err)
+
+						h.unregister <- m.conn
+						m.conn.WriteMessage(websocket.TextMessage, []byte{})
+						m.conn.Close()
+					}
+
+					// 本人以外
+					bytes, _ = json.Marshal(map[string]interface{}{
+						"event": "member-quit",
+						"token": Member[m.conn]["count"],
+					})
+					log.Println(string(bytes))
+					for connection := range h.clients {
+						if connection != m.conn {
+							if err := connection.WriteMessage(websocket.TextMessage, bytes); err != nil {
+								log.Println("write error:", err)
+
+								h.unregister <- connection
+								connection.WriteMessage(websocket.TextMessage, []byte{})
+								connection.Close()
+							}
+						}
+					}
+
+					// 削除
+					delete(Member, m.conn)
+				} else {
+					// 本人にNG通知
+					bytes, _ := json.Marshal(map[string]interface{}{
+						"event": "quit-result",
+						"status": false,
+					})
+					if err := m.conn.WriteMessage(websocket.TextMessage, bytes); err != nil {
+						log.Println("write error:", err)
+
+						h.unregister <- m.conn
+						m.conn.WriteMessage(websocket.TextMessage, []byte{})
+						m.conn.Close()
+					}
+				}
+			}
 		}
 	}
 }
