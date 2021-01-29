@@ -213,4 +213,6 @@ function gotoSTEP1() {
     $("#msg").value = "";            // 発言入力欄 STEP3
     $("#msglist").innerHTML = "";    // 発言リスト STEP3
     $("#memberlist").innerHTML = ""; // メンバーリスト STEP3
+
+    window.location.reload();
 }
